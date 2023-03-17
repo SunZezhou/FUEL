@@ -34,8 +34,11 @@ void FastExplorationFSM::init(ros::NodeHandle& nh) {
   fd_->trigger_ = false;
 
   /* Ros sub, pub and timer */
+  // 周期性根据当前frontier规划tsp路径
   exec_timer_ = nh.createTimer(ros::Duration(0.01), &FastExplorationFSM::FSMCallback, this);
+  // 周期性检查机器人当前规划的路径是否经过障碍物，如果经过，则重规划
   safety_timer_ = nh.createTimer(ros::Duration(0.05), &FastExplorationFSM::safetyCallback, this);
+  // 只在wait_for_trigger和finish阶段起作用，其他时候的边界更新在 case: PLAN_TRAJ 中
   frontier_timer_ = nh.createTimer(ros::Duration(0.5), &FastExplorationFSM::frontierCallback, this);
 
   trigger_sub_ =
@@ -154,10 +157,10 @@ void FastExplorationFSM::FSMCallback(const ros::TimerEvent& e) {
 
 int FastExplorationFSM::callExplorationPlanner() {
   ros::Time time_r = ros::Time::now() + ros::Duration(fp_->replan_time_);
-
+  // 根据tsp结果确定终点
   int res = expl_manager_->planExploreMotion(fd_->start_pt_, fd_->start_vel_, fd_->start_acc_,
                                              fd_->start_yaw_);
-  classic_ = false;
+  classic_ = false;  //  未使用
 
   // int res = expl_manager_->classicFrontier(fd_->start_pt_, fd_->start_yaw_[0]);
   // classic_ = true;
@@ -274,15 +277,16 @@ void FastExplorationFSM::clearVisMarker() {
 }
 
 void FastExplorationFSM::frontierCallback(const ros::TimerEvent& e) {
-  static int delay = 0;
+  static int delay = 0;  //  等同于sleep()?
   if (++delay < 5) return;
 
   if (state_ == WAIT_TRIGGER || state_ == FINISH) {
     auto ft = expl_manager_->frontier_finder_;
     auto ed = expl_manager_->ed_;
-    ft->searchFrontiers();
-    ft->computeFrontiersToVisit();
-    ft->updateFrontierCostMatrix();
+    ft->searchFrontiers();            //  增量更新边界
+    ft->computeFrontiersToVisit();    //  计算观测边界的最佳视点
+    // Cost =  Max(position (Astar) + k * velocity(速度向量夹角), yaw(机器人朝向))
+    ft->updateFrontierCostMatrix();   
 
     ft->getFrontiers(ed->frontiers_);
     ft->getFrontierBoxes(ed->frontier_boxes_);
@@ -293,13 +297,12 @@ void FastExplorationFSM::frontierCallback(const ros::TimerEvent& e) {
                                 visualization_->getColor(double(i) / ed->frontiers_.size(), 0.4),
                                 "frontier", i, 4);
       // visualization_->drawBox(ed->frontier_boxes_[i].first, ed->frontier_boxes_[i].second,
-      // Vector4d(0.5, 0, 1, 0.3),
-      //                         "frontier_boxes", i, 4);
+      //                         Vector4d(0.5, 0, 1, 0.3), "frontier_boxes", i, 4);
     }
     for (int i = ed->frontiers_.size(); i < 50; ++i) {
       visualization_->drawCubes({}, 0.1, Vector4d(0, 0, 0, 1), "frontier", i, 4);
       // visualization_->drawBox(Vector3d(0, 0, 0), Vector3d(0, 0, 0), Vector4d(1, 0, 0, 0.3),
-      // "frontier_boxes", i, 4);
+      //                         "frontier_boxes", i, 4);
     }
   }
 

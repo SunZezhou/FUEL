@@ -94,7 +94,7 @@ int FastExplorationManager::planExploreMotion(
 
   std::cout << "start pos: " << pos.transpose() << ", vel: " << vel.transpose()
             << ", acc: " << acc.transpose() << std::endl;
-
+/*********** Search Frontiers Stage ***************/
   // Search frontiers and group them into clusters
   frontier_finder_->searchFrontiers();
 
@@ -102,6 +102,7 @@ int FastExplorationManager::planExploreMotion(
   t1 = ros::Time::now();
 
   // Find viewpoints (x,y,z,yaw) for all frontier clusters and get visible ones' info
+  // 为每个frontier采样多个视点，按覆盖未知区域多少降序
   frontier_finder_->computeFrontiersToVisit();
   frontier_finder_->getFrontiers(ed_->frontiers_);
   frontier_finder_->getFrontierBoxes(ed_->frontier_boxes_);
@@ -111,7 +112,10 @@ int FastExplorationManager::planExploreMotion(
     ROS_WARN("No coverable frontier.");
     return NO_FRONTIER;
   }
+  // 从每个frontier的多个观测角度中找到覆盖未知区域最大的
+  // 其中 ed_->points_ 视点坐标， yaws_ 视点朝向， averages_ 边界bbx中心
   frontier_finder_->getTopViewpointsInfo(pos, ed_->points_, ed_->yaws_, ed_->averages_);
+  // 前往视点朝向后方2米的位置。 再从那里前往视点？为了稳定视角？
   for (int i = 0; i < ed_->points_.size(); ++i)
     ed_->views_.push_back(
         ed_->points_[i] + 2.0 * Vector3d(cos(ed_->yaws_[i]), sin(ed_->yaws_[i]), 0));
@@ -120,7 +124,7 @@ int FastExplorationManager::planExploreMotion(
   ROS_WARN(
       "Frontier: %d, t: %lf, viewpoint: %d, t: %lf", ed_->frontiers_.size(), frontier_time,
       ed_->points_.size(), view_time);
-
+/*********** TSP Stage ***************/
   // Do global and local tour planning and retrieve the next viewpoint
   Vector3d next_pos;
   double next_yaw;
@@ -130,7 +134,7 @@ int FastExplorationManager::planExploreMotion(
     // Optimal tour is returned as indices of frontier
     vector<int> indices;
     findGlobalTour(pos, vel, yaw, indices);
-
+/*********** Refine Stage ***************/
     if (ep_->refine_local_) {
       // Do refinement for the next few viewpoints in the global tour
       // Idx of the first K frontier in optimal tour
@@ -138,7 +142,7 @@ int FastExplorationManager::planExploreMotion(
 
       ed_->refined_ids_.clear();
       ed_->unrefined_points_.clear();
-      int knum = min(int(indices.size()), ep_->refined_num_);
+      int knum = min(int(indices.size()), ep_->refined_num_);  //  default 7 viewpoints
       for (int i = 0; i < knum; ++i) {
         auto tmp = ed_->points_[indices[i]];
         ed_->unrefined_points_.push_back(tmp);
@@ -221,7 +225,7 @@ int FastExplorationManager::planExploreMotion(
     ROS_ERROR("Empty destination.");
 
   std::cout << "Next view: " << next_pos.transpose() << ", " << next_yaw << std::endl;
-
+/*********** Optimization Stage ***************/
   // Plan trajectory (position and yaw) to the next viewpoint
   t1 = ros::Time::now();
 
@@ -238,7 +242,7 @@ int FastExplorationManager::planExploreMotion(
   ed_->path_next_goal_ = planner_manager_->path_finder_->getPath();
   shortenPath(ed_->path_next_goal_);
 
-  const double radius_far = 5.0;
+  const double radius_far = 5.0;    //  优化路径最长长度
   const double radius_close = 1.5;
   const double len = Astar::pathLength(ed_->path_next_goal_);
   if (len < radius_close) {
@@ -248,8 +252,7 @@ int FastExplorationManager::planExploreMotion(
     ed_->next_goal_ = next_pos;
 
   } else if (len > radius_far) {
-    // Next viewpoint is far away, select intermediate goal on geometric path (this also deal with
-    // dead end)
+    // Next viewpoint is far away, select intermediate goal on geometric path (this also deal with dead end)
     std::cout << "Far goal." << std::endl;
     double len2 = 0.0;
     vector<Eigen::Vector3d> truncated_path = { ed_->path_next_goal_.front() };
@@ -259,6 +262,7 @@ int FastExplorationManager::planExploreMotion(
       truncated_path.push_back(cur_pt);
     }
     ed_->next_goal_ = truncated_path.back();
+    // 它应该比Mid远，为什么要注释掉kinodynamicReplan部份？
     planner_manager_->planExploreTraj(truncated_path, vel, acc, time_lb);
     // if (!planner_manager_->kinodynamicReplan(
     //         pos, vel, acc, ed_->next_goal_, Vector3d(0, 0, 0), time_lb))
@@ -418,7 +422,7 @@ void FastExplorationManager::findGlobalTour(
 
   res_file.close();
 
-  // Get the path of optimal tour from path matrix
+  // Get the path of optimal tour from path matrix  (Astar)
   frontier_finder_->getPathForTour(cur_pos, indices, ed_->global_tour_);
 
   double tsp_time = (ros::Time::now() - t1).toSec();

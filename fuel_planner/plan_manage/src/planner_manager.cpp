@@ -35,8 +35,7 @@ void FastPlannerManager::initPlanModules(ros::NodeHandle& nh) {
   nh.param("manager/bspline_degree", pp_.bspline_degree_, 3);
   nh.param("manager/min_time", pp_.min_time_, false);
 
-  bool use_geometric_path, use_kinodynamic_path, use_topo_path, use_optimization,
-      use_active_perception;
+  bool use_geometric_path, use_kinodynamic_path, use_topo_path, use_optimization, use_active_perception;
   nh.param("manager/use_geometric_path", use_geometric_path, false);
   nh.param("manager/use_kinodynamic_path", use_kinodynamic_path, false);
   nh.param("manager/use_topo_path", use_topo_path, false);
