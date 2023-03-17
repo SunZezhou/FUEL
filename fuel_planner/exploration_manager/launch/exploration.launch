@@ -87,4 +87,6 @@
     <arg name="p_num" value="130"/>
   </include>
 
+  <node name="rvizvisualisation" pkg="rviz" type="rviz" output="log" args="-d $(find plan_manage)/config/traj.rviz" />
+
 </launch>
